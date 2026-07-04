@@ -7,7 +7,10 @@
 <title>Ledger — Monthly Budget</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/msal-browser/3.28.1/msal-browser.min.js"></script>
+<script type="text/javascript" src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
+<script type="text/javascript">
+if(typeof msal === 'undefined')document.write(unescape("%3Cscript src='https://alcdn.msftauth.net/browser/2.35.0/js/msal-browser.min.js' type='text/javascript'%3E%3C/script%3E"));
+</script>
 <style>
 :root{
   --paper:#F5F6F2; --card:#FFFFFF; --ink:#182420; --muted:#67736D; --line:#E3E7E1;
@@ -481,7 +484,7 @@ function ensureMsal(){
 }
 async function getToken(){
   const app = ensureMsal(); if(!app) return null;
-  await app.initialize();
+  if(app.initialize) await app.initialize();
   const req = {scopes:['Files.ReadWrite']};
   try{
     if(!account){ const accts = app.getAllAccounts(); account = accts[0]||null; }
