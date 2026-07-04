@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E6B5C">
+<title>Ledger — Monthly Budget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/msal-browser/3.28.1/msal-browser.min.js"></script>
+<style>
+:root{
+  --paper:#F5F6F2; --card:#FFFFFF; --ink:#182420; --muted:#67736D; --line:#E3E7E1;
+  --pine:#0E6B5C; --pine-soft:#E3F0ED; --debit:#B4452F; --debit-soft:#F7E9E5;
+  --credit:#2E7D4F; --credit-soft:#E7F2EB; --amber:#8A6A1F; --amber-soft:#F6EFDC;
+  --radius:14px; --disp:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+  --body:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{padding:18px 18px 10px;display:flex;align-items:baseline;justify-content:space-between}
+header h1{font-family:var(--disp);font-weight:700;font-size:22px;letter-spacing:-.02em}
+header h1 span{color:var(--pine)}
+#connBadge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:3px 10px;background:var(--card)}
+#connBadge.on{color:var(--pine);border-color:var(--pine);background:var(--pine-soft)}
+main{max-width:560px;margin:0 auto;padding:0 14px}
+.screen{display:none}
+.screen.active{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.screen.active,.chip{animation:none!important}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+label.f{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 5px}
+label.f:first-child{margin-top:0}
+input[type=text],input[type=number],input[type=month],input[type=password],select,textarea{
+  width:100%;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);
+  border-radius:10px;padding:11px 12px;outline:none;appearance:none;-webkit-appearance:none}
+input:focus,select:focus,textarea:focus{border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-soft)}
+#amount{font-family:var(--disp);font-size:26px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{font:inherit;font-weight:600;padding:11px;border:0;background:transparent;color:var(--muted)}
+.seg button.on.debit{background:var(--debit);color:#fff}
+.seg button.on.credit{background:var(--credit);color:#fff}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill{font:inherit;font-size:14px;font-weight:500;padding:8px 13px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.pill.on{background:var(--ink);border-color:var(--ink);color:#fff}
+/* merchant autocomplete */
+.acWrap{position:relative}
+#acList{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 26px rgba(24,36,32,.14);max-height:230px;overflow:auto;display:none}
+#acList div{padding:10px 12px;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);cursor:pointer}
+#acList div:last-child{border-bottom:0}
+#acList b{font-weight:600}
+#acList small{color:var(--muted);white-space:nowrap}
+.chip{display:none;margin-top:8px;font-size:13px;background:var(--pine-soft);color:var(--pine);border:1px solid var(--pine);border-radius:99px;padding:6px 12px;animation:fade .18s ease}
+.chip b{font-weight:700}
+.btn{display:block;width:100%;font:inherit;font-family:var(--disp);font-weight:700;font-size:17px;padding:14px;border:0;border-radius:12px;background:var(--pine);color:#fff;cursor:pointer}
+.btn:active{transform:scale(.99)}
+.btn.ghost{background:var(--card);color:var(--pine);border:1.5px solid var(--pine);font-size:15px;padding:11px}
+.btn:disabled{opacity:.45}
+.btn+.btn{margin-top:10px}
+/* pending list */
+.pend{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.pend:last-child{border-bottom:0}
+.pend .who{flex:1;min-width:0}
+.pend .who b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pend .who small{color:var(--muted);font-size:12px}
+.pend .amt{font-family:var(--disp);font-weight:700;font-variant-numeric:tabular-nums}
+.amt.d{color:var(--debit)} .amt.c{color:var(--credit)}
+.pend .x{border:0;background:none;color:var(--muted);font-size:18px;padding:6px;cursor:pointer}
+/* dashboard */
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.stat small{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.stat .v{font-family:var(--disp);font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:3px}
+.ratioCard{grid-column:1/-1;display:flex;align-items:center;gap:16px}
+.dial{width:86px;height:86px;flex:none}
+.dial text{font-family:var(--disp);font-weight:700}
+.bar{margin:10px 0}
+.bar .t{display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px}
+.bar .t b{font-weight:600}
+.bar .t span{font-family:var(--disp);font-weight:700;font-variant-numeric:tabular-nums}
+.track{height:9px;border-radius:99px;background:var(--paper);overflow:hidden}
+.fill{height:100%;border-radius:99px}
+.subrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.subrow:last-child{border-bottom:0}
+.subrow span{font-family:var(--disp);font-weight:600;font-variant-numeric:tabular-nums}
+.srcNote{font-size:12px;color:var(--muted);margin:2px 2px 12px}
+h2.sec{font-family:var(--disp);font-size:15px;font-weight:700;margin:16px 2px 8px}
+/* sync */
+.step{display:flex;gap:10px;margin:10px 0}
+.step .n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--disp)}
+.step p{font-size:14px;color:var(--ink)}
+.step code{background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12.5px;word-break:break-all}
+details summary{font-weight:600;cursor:pointer;padding:4px 0}
+.okline{font-size:14px;padding:9px 12px;border-radius:10px;margin-top:10px;display:none}
+.okline.ok{display:block;background:var(--credit-soft);color:var(--credit)}
+.okline.err{display:block;background:var(--debit-soft);color:var(--debit)}
+.okline.warn{display:block;background:var(--amber-soft);color:var(--amber)}
+/* tabbar */
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:40}
+nav button{flex:1;font:inherit;font-size:12px;font-weight:600;color:var(--muted);background:none;border:0;padding:9px 0 7px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+nav button.on{color:var(--pine)}
+nav button .bdg{position:absolute;transform:translate(14px,-4px);background:var(--debit);color:#fff;font-size:10px;border-radius:99px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px}
+#toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--ink);color:#fff;font-size:14px;font-weight:500;padding:10px 18px;border-radius:99px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;white-space:nowrap}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Ledger<span>.</span></h1>
+  <div id="connBadge">Local only</div>
+</header>
+
+<main>
+<!-- ============ ADD ============ -->
+<section class="screen active" id="scr-add">
+  <div class="card">
+    <label class="f">Budget month</label>
+    <div class="row2">
+      <input type="month" id="fMonth">
+      <div class="seg" id="daySeg">
+        <button data-d="first" class="on credit" style="background:var(--ink);color:#fff">1st of month</button>
+        <button data-d="last">Last day</button>
+      </div>
+    </div>
+
+    <label class="f">Name</label>
+    <div class="acWrap">
+      <input type="text" id="fName" placeholder="Where did the money go?" autocomplete="off" autocapitalize="words">
+      <div id="acList"></div>
+    </div>
+    <div class="chip" id="memChip"></div>
+
+    <label class="f">Amount</label>
+    <div class="row2">
+      <input type="number" id="amount" inputmode="decimal" step="0.01" placeholder="0.00">
+      <div class="seg" id="dcSeg">
+        <button data-t="debit" class="on debit">Debit −</button>
+        <button data-t="credit">Credit +</button>
+      </div>
+    </div>
+
+    <label class="f">Category</label>
+    <div class="pills" id="catPills"></div>
+
+    <label class="f">Sub-category</label>
+    <select id="fSub"><option value="">— pick category first —</option></select>
+
+    <label class="f">Notes <span style="text-transform:none;font-weight:400">(optional)</span></label>
+    <input type="text" id="fNotes" placeholder="Gift, Trip-SanAntonio…">
+
+    <div style="height:14px"></div>
+    <button class="btn" id="saveBtn">Add entry</button>
+  </div>
+
+  <div class="card" id="pendCard" style="display:none">
+    <h2 class="sec" style="margin-top:0">Waiting to sync (<span id="pendN">0</span>)</h2>
+    <div id="pendList"></div>
+    <div style="height:10px"></div>
+    <button class="btn ghost" id="csvBtn">Download as CSV</button>
+  </div>
+</section>
+
+<!-- ============ MONTH ============ -->
+<section class="screen" id="scr-dash">
+  <div class="card" style="padding:12px 16px">
+    <select id="dMonth"></select>
+  </div>
+  <p class="srcNote" id="srcNote"></p>
+  <div class="hero">
+    <div class="stat"><small>Income</small><div class="v" id="kIncome" style="color:var(--credit)">–</div></div>
+    <div class="stat"><small>Total expense</small><div class="v" id="kExpense" style="color:var(--debit)">–</div></div>
+    <div class="stat ratioCard">
+      <svg class="dial" viewBox="0 0 100 100" id="dial"></svg>
+      <div><small style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em">Spend ratio</small>
+        <div class="v" id="kRatio" style="font-family:var(--disp);font-size:26px;font-weight:700">–</div>
+        <div style="font-size:12px;color:var(--muted)" id="kInvest"></div>
+      </div>
+    </div>
+  </div>
+  <h2 class="sec">Where it went</h2>
+  <div class="card" id="catBars"></div>
+  <h2 class="sec">Sub-categories</h2>
+  <div class="card" id="subList"></div>
+</section>
+
+<!-- ============ SYNC ============ -->
+<section class="screen" id="scr-sync">
+  <div class="card">
+    <h2 class="sec" style="margin-top:0">OneDrive connection</h2>
+    <label class="f">Azure app client ID</label>
+    <input type="text" id="sClient" placeholder="00000000-0000-0000-0000-000000000000">
+    <label class="f">Workbook path on OneDrive</label>
+    <input type="text" id="sPath" placeholder="/Documents/BUDGET.xlsx">
+    <label class="f">Excel table name (on Raw-Data)</label>
+    <input type="text" id="sTable" placeholder="RawData">
+    <div style="height:12px"></div>
+    <button class="btn" id="signBtn">Sign in with Microsoft</button>
+    <button class="btn ghost" id="pushBtn">Push pending entries to Excel</button>
+    <button class="btn ghost" id="pullBtn">Pull latest from Excel</button>
+    <div class="okline" id="syncMsg"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>One-time setup (10 minutes)</summary>
+      <div class="step"><div class="n">1</div><p><b>Make Raw-Data a table.</b> In Excel, click any cell in Raw-Data → Insert → Table (has headers) → Table Design → rename it <code>RawData</code>.</p></div>
+      <div class="step"><div class="n">2</div><p><b>Register a free Azure app.</b> Go to <code>portal.azure.com</code> → Microsoft Entra ID → App registrations → New. Supported account types: <b>Personal Microsoft accounts</b>. Platform: <b>Single-page application</b>. Redirect URI: the exact URL where this page is hosted.</p></div>
+      <div class="step"><div class="n">3</div><p><b>Add permission.</b> API permissions → Microsoft Graph → Delegated → <code>Files.ReadWrite</code>.</p></div>
+      <div class="step"><div class="n">4</div><p><b>Host this file.</b> Sign-in can't run from a <code>file://</code> path. Put this HTML on GitHub Pages (free, HTTPS) and use that URL as the redirect URI in step 2.</p></div>
+      <div class="step"><div class="n">5</div><p><b>Paste the client ID above</b>, set the workbook path (e.g. <code>/Documents/BUDGET.xlsx</code>), sign in once per phone. Both of you use the same client ID; you each sign in with the Microsoft account that has access to the file.</p></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>How this app decides categories</summary>
+      <p style="font-size:14px;margin-top:6px">It ships with a memory of <b id="memCount"></b> merchants learned from your history (Dec 2023 → Feb 2026). Typing a known name auto-fills category and sub-category. Every entry you save teaches it new names. Category strings are written back exactly as your sheet expects (including the trailing space in <code>Essential␠</code> and <code>Investment␠</code>) so your DashBoard formulas keep working.</p>
+    </details>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button data-s="add" class="on"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add<span class="bdg" id="navBdg" style="display:none"></span></button>
+  <button data-s="dash"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Month</button>
+  <button data-s="sync"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>Sync</button>
+</nav>
+<div id="toast"></div>
+
+<script>
+const SEED = {"merchants":{},"categories":{"Essential":["CC-Fees","CC/Setup-Fees","Family","Functional Buys","Grocery","Grooming","Gym-Sports-Activity","Home-Improvement","Mayo","TaxFiling"],"FixedExpense":["Electric","Electric-Gas","Home Principal","Home-Insurance","Home-Mortgage","Home-Rent","Home-rent","Home-Rent-DNU","Mayo-Insurance","PhoneBill","Rent-Insurance","Rent-insurance","Utilities","Water-Sewer","Water-Sewer-DNU","WIFI"],"Car":["EMI","Fuel","Insurance","Service-Maintenance","Tolls"],"Recreation":["Concerts/Movies","Games","Gifts","Hosting","OutsideFood","Shopping","Subscriptions","Trips"],"Income":["Apple Savings","Bonus","CC-CashBack","CC-Offer","Misc","Salary","Savings-Interest","Tax return","TaxReturn"],"Investment":["AppleSavings","IWM","Schwab"]},"catWrite":{"Recreation":"Recreation","Essential":"Essential ","Income":"Income","FixedExpense":"FixedExpense","Car":"Car","Investment":"Investment ","Home":"Home"},"subWrite":{"OutsideFood":"OutsideFood","Grocery":"Grocery","Family":"Family","Salary":"Salary","Functional Buys":"Functional Buys","Shopping":"Shopping","Fuel":"Fuel","Subscriptions":"Subscriptions","Grooming":"Grooming","Mayo":"Mayo","PhoneBill":"PhoneBill","CC-Offer":"CC-Offer","Schwab":"Schwab","Gym-Sports-Activity":"Gym-Sports-Activity","Hosting":"Hosting","Home-Mortgage":"Home-Mortgage","WIFI":"WIFI","EMI":"EMI","Electric":"Electric","IWM":"IWM","Utilities":"Utilities","Home-Improvement":"Home-Improvement","Mayo-Insurance":"Mayo-Insurance","Insurance":"Insurance ","Service-Maintenance":"Service-Maintenance","AppleSavings":"AppleSavings","Gifts":"Gifts","Savings-Interest":"Savings-Interest","Water-Sewer":"Water-Sewer","Tolls":"Tolls","CC-CashBack":"CC-CashBack","Home-rent":"Home-rent ","Apple Savings":"Apple Savings","CC/Setup-Fees":"CC/Setup-Fees","Trips":"Trips","Misc":"Misc","Home Principal":"Home Principal","Bonus":"Bonus","Games":"Games ","TaxFiling":"TaxFiling","Home-Rent":"Home-Rent ","Rent-Insurance":"Rent-Insurance","Concerts/Movies":"Concerts/Movies","CC-Fees":"CC-Fees","Home-Insurance":"Home-Insurance","Rent-insurance":"Rent-insurance","Tax return":"Tax return"},"history":[],"detail":{}};
+
+/* ---------- safe storage (works even where localStorage is blocked) ---------- */
+const mem = {};
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v==null ? (k in mem ? mem[k] : d) : JSON.parse(v);}catch(e){ return k in mem ? mem[k] : d; } },
+  set(k, v){ mem[k]=v; try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+
+/* ---------- state ---------- */
+let pending  = store.get('lg_pending', []);
+let learned  = store.get('lg_learned', {});          // name -> [cat, sub, n]
+let settings = store.get('lg_settings', {client:'', path:'/Documents/BUDGET.xlsx', table:'RawData'});
+let liveRows = null;                                  // rows pulled from Graph
+let sel = {cat:'', sub:'', dc:'debit', day:'first'};
+
+const $ = id => document.getElementById(id);
+const fmt$ = n => '$' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+const toast = m => { const t=$('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._x); t._x=setTimeout(()=>t.classList.remove('show'),2200); };
+
+const EXP_CATS = ['Essential','FixedExpense','Car','Recreation'];
+const CAT_COLORS = {Essential:'#0E6B5C', FixedExpense:'#3B5A9A', Car:'#8A6A1F', Recreation:'#B4452F', Investment:'#5B4B8A', Income:'#2E7D4F'};
+
+/* ---------- merchant memory ---------- */
+function lookup(name){
+  const k = name.trim().toLowerCase(); if(!k) return null;
+  for(const src of [learned, SEED.merchants])
+    for(const n in src) if(n.toLowerCase()===k) return {name:n, cat:src[n][0], sub:src[n][1], n:src[n][2]||1};
+  return null;
+}
+function suggest(q){
+  q = q.trim().toLowerCase(); if(q.length<1) return [];
+  const seen = new Set(), out = [];
+  const scan = src => { for(const n in src){ const l=n.toLowerCase();
+    if(l.includes(q) && !seen.has(l)){ seen.add(l); out.push({name:n, cat:src[n][0], sub:src[n][1], n:src[n][2]||1}); } } };
+  scan(learned); scan(SEED.merchants);
+  out.sort((a,b)=>{ const ap=a.name.toLowerCase().startsWith(q), bp=b.name.toLowerCase().startsWith(q);
+    if(ap!==bp) return ap?-1:1; return (b.n||0)-(a.n||0); });
+  return out.slice(0,6);
+}
+
+/* ---------- add form ---------- */
+function initMonth(){ const d=new Date(); $('fMonth').value = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function buildCatPills(){
+  const wrap = $('catPills'); wrap.innerHTML='';
+  Object.keys(SEED.categories).forEach(c=>{
+    const b=document.createElement('button'); b.type='button'; b.className='pill'; b.textContent=c;
+    b.onclick=()=>{ sel.cat=c; sel.sub=''; [...wrap.children].forEach(x=>x.classList.toggle('on',x===b)); buildSubs(c); };
+    wrap.appendChild(b);
+  });
+}
+function buildSubs(cat, pick){
+  const s=$('fSub'); s.innerHTML='';
+  (SEED.categories[cat]||[]).forEach(x=>{ const o=document.createElement('option'); o.value=x; o.textContent=x; s.appendChild(o); });
+  if(pick && [...s.options].some(o=>o.value===pick)) s.value=pick; sel.sub=s.value;
+}
+$('fSub').onchange = e => sel.sub = e.target.value;
+$('dcSeg').onclick = e => { const b=e.target.closest('button'); if(!b) return; sel.dc=b.dataset.t;
+  [...$('dcSeg').children].forEach(x=>{x.className = x===b ? 'on '+sel.dc : '';}); };
+$('daySeg').onclick = e => { const b=e.target.closest('button'); if(!b) return; sel.day=b.dataset.d;
+  [...$('daySeg').children].forEach(x=>{ x.style.background = x===b?'var(--ink)':''; x.style.color = x===b?'#fff':''; }); };
+
+const nameIn = $('fName'), ac = $('acList'), chip = $('memChip');
+nameIn.addEventListener('input', ()=>{
+  const list = suggest(nameIn.value);
+  ac.innerHTML=''; ac.style.display = list.length ? 'block':'none';
+  list.forEach(m=>{ const d=document.createElement('div');
+    d.innerHTML = `<b>${m.name}</b><small>${m.cat} › ${m.sub}${m.n>1?' · '+m.n+'×':''}</small>`;
+    d.onclick=()=>{ nameIn.value=m.name; ac.style.display='none'; applyMemory(m); };
+    ac.appendChild(d); });
+  const hit = lookup(nameIn.value);
+  if(hit) applyMemory(hit); else chip.style.display='none';
+});
+nameIn.addEventListener('blur', ()=> setTimeout(()=>{ ac.style.display='none'; const h=lookup(nameIn.value); if(h) applyMemory(h); },160));
+function applyMemory(m){
+  sel.cat=m.cat;
+  [...$('catPills').children].forEach(x=>x.classList.toggle('on', x.textContent===m.cat));
+  buildSubs(m.cat, m.sub);
+  chip.innerHTML = `Filed before under <b>${m.cat} › ${m.sub}</b>${m.n>1 ? ' · '+m.n+'×':''}`;
+  chip.style.display='inline-block';
+}
+
+function entryDate(){
+  const [y,m] = $('fMonth').value.split('-').map(Number);
+  return sel.day==='first' ? new Date(Date.UTC(y, m-1, 1)) : new Date(Date.UTC(y, m, 0));
+}
+const excelSerial = d => Math.round((d.getTime() - Date.UTC(1899,11,30)) / 86400000);
+
+$('saveBtn').onclick = ()=>{
+  const name = nameIn.value.trim(), amt = parseFloat($('amount').value);
+  if(!name) return toast('Give it a name');
+  if(!amt && amt!==0 || isNaN(amt)) return toast('Enter an amount');
+  if(!sel.cat) return toast('Pick a category');
+  const d = entryDate();
+  const e = { serial: excelSerial(d), iso: d.toISOString().slice(0,10),
+    name, debit: sel.dc==='debit'?amt:null, credit: sel.dc==='credit'?amt:null,
+    notes: $('fNotes').value.trim(), cat: sel.cat, sub: sel.sub };
+  pending.push(e); store.set('lg_pending', pending);
+  const prev = lookup(name);
+  learned[name] = [sel.cat, sel.sub, (prev && prev.name.toLowerCase()===name.toLowerCase() ? (prev.n||1)+1 : 1)];
+  store.set('lg_learned', learned);
+  nameIn.value=''; $('amount').value=''; $('fNotes').value=''; chip.style.display='none';
+  renderPending(); toast('Added — '+pending.length+' waiting to sync');
+};
+
+function renderPending(){
+  $('pendCard').style.display = pending.length ? 'block':'none';
+  $('pendN').textContent = pending.length;
+  const bdg=$('navBdg'); bdg.style.display = pending.length?'block':'none'; bdg.textContent = pending.length;
+  const w=$('pendList'); w.innerHTML='';
+  pending.forEach((e,i)=>{ const r=document.createElement('div'); r.className='pend';
+    r.innerHTML = `<div class="who"><b>${e.name}</b><small>${e.iso} · ${e.cat} › ${e.sub||'—'}${e.notes?' · '+e.notes:''}</small></div>
+      <div class="amt ${e.debit!=null?'d':'c'}">${e.debit!=null?'−':'+'}${fmt$(e.debit!=null?e.debit:e.credit)}</div>
+      <button class="x" aria-label="Remove">✕</button>`;
+    r.querySelector('.x').onclick=()=>{ pending.splice(i,1); store.set('lg_pending',pending); renderPending(); renderDash(); };
+    w.appendChild(r); });
+}
+
+$('csvBtn').onclick = ()=>{
+  const esc = s => '"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const lines = [['DATE','EXPENSE NAME','Debits','Credit','Notes','Category','sub-category'].join(',')];
+  pending.forEach(e=> lines.push([e.iso, esc(e.name), e.debit??'', e.credit??'', esc(e.notes),
+    esc(SEED.catWrite[e.cat]||e.cat), esc(SEED.subWrite[e.sub]||e.sub)].join(',')));
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
+  a.download='budget-pending.csv'; a.click();
+};
+
+/* ---------- dashboard ---------- */
+function serialToMonth(s){ const d=new Date((s-25569)*86400000); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0'); }
+
+function dataByMonth(){
+  // base: live pull if available, else seeded snapshot
+  const hist = {}, det = {};
+  if(liveRows){
+    liveRows.forEach(v=>{
+      let [dt, name, deb, cred, notes, cat, sub] = v;
+      cat = String(cat||'').trim(); sub = String(sub||'').trim() || '—';
+      if(!cat) return;
+      const m = typeof dt==='number' ? serialToMonth(dt) : String(dt||'').slice(0,7);
+      const amt = cat==='Income' ? Number(cred)||0 : Number(deb)||0;
+      if(!amt) return;
+      (hist[m] = hist[m] || {}); hist[m][cat]=(hist[m][cat]||0)+amt;
+      (det[m] = det[m] || []).push([cat, sub, amt]);
+    });
+  } else {
+    SEED.history.forEach(r=>{ hist[r.m]={}; for(const k in r) if(k!=='m') hist[r.m][k]=r[k]; });
+    for(const m in SEED.detail) det[m] = SEED.detail[m].map(x=>x.slice());
+  }
+  // overlay pending entries
+  pending.forEach(e=>{
+    const m = e.iso.slice(0,7);
+    const amt = e.cat==='Income' ? (e.credit||0) : (e.debit||0);
+    if(!amt) return;
+    (hist[m]=hist[m]||{}); hist[m][e.cat]=(hist[m][e.cat]||0)+amt;
+    (det[m]=det[m]||[]).push([e.cat, e.sub||'—', amt]);
+  });
+  return {hist, det};
+}
+
+function renderDash(){
+  const {hist, det} = dataByMonth();
+  const months = Object.keys(hist).sort().reverse();
+  const dm = $('dMonth'), keep = dm.value;
+  dm.innerHTML='';
+  months.forEach(m=>{ const o=document.createElement('option'); o.value=m;
+    o.textContent = new Date(m+'-15').toLocaleDateString('en-US',{month:'long',year:'numeric'}); dm.appendChild(o); });
+  if(keep && months.includes(keep)) dm.value=keep;
+  $('srcNote').textContent = liveRows ? 'Live from your OneDrive workbook'
+    : 'No data yet — sign in on the Sync tab and pull from Excel to load your history';
+  drawMonth(dm.value, hist, det);
+}
+$('dMonth').onchange = ()=>{ const {hist,det}=dataByMonth(); drawMonth($('dMonth').value, hist, det); };
+
+function drawMonth(m, hist, det){
+  const h = hist[m]||{};
+  const inc = h.Income||0, inv = h.Investment||0;
+  const exp = EXP_CATS.reduce((s,c)=>s+(h[c]||0),0);
+  $('kIncome').textContent = inc?fmt$(inc):'–';
+  $('kExpense').textContent = exp?fmt$(exp):'–';
+  $('kInvest').textContent = inv?('Invested '+fmt$(inv)):'';
+  const r = inc ? exp/inc : 0;
+  $('kRatio').textContent = inc ? (r*100).toFixed(0)+'%' : '–';
+  // dial
+  const pct = Math.min(r,1.25), C=2*Math.PI*40;
+  const col = r>1 ? 'var(--debit)' : r>.8 ? 'var(--amber)' : 'var(--pine)';
+  $('dial').innerHTML = `<circle cx="50" cy="50" r="40" stroke="var(--line)" stroke-width="9" fill="none"/>
+    <circle cx="50" cy="50" r="40" stroke="${col}" stroke-width="9" fill="none" stroke-linecap="round"
+      stroke-dasharray="${C}" stroke-dashoffset="${C*(1-Math.min(pct,1))}" transform="rotate(-90 50 50)"/>
+    <text x="50" y="56" text-anchor="middle" font-size="20" fill="${col}">${inc?(r*100).toFixed(0):'–'}</text>`;
+  // category bars
+  const cb = $('catBars'); cb.innerHTML='';
+  const max = Math.max(...EXP_CATS.map(c=>h[c]||0), 1);
+  EXP_CATS.concat(inv?['Investment']:[]).forEach(c=>{
+    const v = h[c]||0; if(!v && c!=='Investment') {}
+    const b = document.createElement('div'); b.className='bar';
+    b.innerHTML = `<div class="t"><b>${c}</b><span>${fmt$(v)}</span></div>
+      <div class="track"><div class="fill" style="width:${Math.min(v/max*100,100)}%;background:${CAT_COLORS[c]}"></div></div>`;
+    cb.appendChild(b);
+  });
+  // subcategory list grouped by category, sorted desc
+  const sl = $('subList'); sl.innerHTML='';
+  const rows = (det[m]||[]).reduce((a,[c,s,v])=>{ const k=c+'›'+s; a[k]=(a[k]||{c,s,v:0}); a[k].v+=v; return a; },{});
+  const arr = Object.values(rows).filter(x=>x.c!=='Income').sort((a,b)=>b.v-a.v);
+  if(!arr.length) sl.innerHTML = '<p style="color:var(--muted);font-size:14px">Nothing here yet — add entries or pull from Excel.</p>';
+  arr.forEach(x=>{ const d=document.createElement('div'); d.className='subrow';
+    d.innerHTML = `<div><b style="color:${CAT_COLORS[x.c]||'var(--ink)'}">●</b> ${x.s} <small style="color:var(--muted)">· ${x.c}</small></div><span>${fmt$(x.v)}</span>`;
+    sl.appendChild(d); });
+}
+
+function learnFromRows(rows){
+  const counts = {};
+  rows.forEach(v=>{
+    const name = String(v[1]||'').trim(), cat = String(v[5]||'').trim(), sub = String(v[6]||'').trim();
+    if(!name || !cat) return;
+    const k = name+'\u0000'+cat+'\u0000'+sub;
+    counts[k] = (counts[k]||0)+1;
+  });
+  const best = {};
+  for(const k in counts){
+    const [name,cat,sub] = k.split('\u0000');
+    const key = name.toLowerCase();
+    if(!best[key] || counts[k] > best[key].n) best[key] = {name, cat, sub, n:counts[k]};
+  }
+  for(const key in best){
+    const b = best[key], prev = learned[b.name];
+    if(!prev || b.n >= (prev[2]||1)) learned[b.name] = [b.cat, b.sub, b.n];
+  }
+  store.set('lg_learned', learned);
+}
+
+/* ---------- Microsoft Graph sync ---------- */
+let msalApp = null, account = null;
+function syncMsg(kind, text){ const el=$('syncMsg'); el.className='okline '+kind; el.textContent=text; }
+function saveSettings(){
+  settings = {client:$('sClient').value.trim(), path:$('sPath').value.trim()||'/Documents/BUDGET.xlsx', table:$('sTable').value.trim()||'RawData'};
+  store.set('lg_settings', settings);
+}
+function ensureMsal(){
+  if(typeof msal==='undefined'){ syncMsg('err','Sign-in library failed to load — check your connection.'); return null; }
+  if(location.protocol==='file:'){ syncMsg('warn','Sign-in needs this page hosted over https (see setup steps) — file:// cannot complete Microsoft login. Local entry and CSV export still work.'); return null; }
+  if(!settings.client){ syncMsg('warn','Paste your Azure app client ID first.'); return null; }
+  if(!msalApp) msalApp = new msal.PublicClientApplication({
+    auth:{ clientId:settings.client, authority:'https://login.microsoftonline.com/consumers', redirectUri: location.origin+location.pathname },
+    cache:{ cacheLocation:'localStorage' }});
+  return msalApp;
+}
+async function getToken(){
+  const app = ensureMsal(); if(!app) return null;
+  await app.initialize();
+  const req = {scopes:['Files.ReadWrite']};
+  try{
+    if(!account){ const accts = app.getAllAccounts(); account = accts[0]||null; }
+    if(account){ const r = await app.acquireTokenSilent({...req, account}); return r.accessToken; }
+  }catch(e){}
+  const r = await app.loginPopup(req); account = r.account;
+  return r.accessToken;
+}
+const gBase = ()=> `https://graph.microsoft.com/v1.0/me/drive/root:${encodeURI(settings.path)}:/workbook/tables/${encodeURIComponent(settings.table)}`;
+
+$('signBtn').onclick = async ()=>{
+  saveSettings();
+  try{ const t = await getToken(); if(!t) return;
+    $('connBadge').textContent='Connected'; $('connBadge').classList.add('on');
+    syncMsg('ok','Signed in as '+(account?account.username:'you')+'. You can push and pull now.');
+  }catch(e){ syncMsg('err','Sign-in failed: '+(e.errorMessage||e.message||e)); }
+};
+
+$('pushBtn').onclick = async ()=>{
+  saveSettings();
+  if(!pending.length) return syncMsg('warn','Nothing pending to push.');
+  try{
+    const t = await getToken(); if(!t) return;
+    const values = pending.map(e=>[ e.serial, e.name, e.debit==null?'':e.debit, e.credit==null?'':e.credit,
+      e.notes||'', SEED.catWrite[e.cat]||e.cat, SEED.subWrite[e.sub]||e.sub||'' ]);
+    const res = await fetch(gBase()+'/rows/add', {method:'POST',
+      headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},
+      body: JSON.stringify({values})});
+    if(!res.ok){ const err = await res.json().catch(()=>({}));
+      throw new Error(err.error?.message || res.status+' '+res.statusText); }
+    const n = pending.length; pending = []; store.set('lg_pending', pending);
+    renderPending(); renderDash();
+    $('connBadge').textContent='Connected'; $('connBadge').classList.add('on');
+    syncMsg('ok', n+' row'+(n>1?'s':'')+' written to '+settings.path+'. Open the workbook and your DashBoard tab will pick them up.');
+  }catch(e){ syncMsg('err','Push failed: '+(e.message||e)+'. Check the file path and that the table is named "'+settings.table+'".'); }
+};
+
+$('pullBtn').onclick = async ()=>{
+  saveSettings();
+  try{
+    const t = await getToken(); if(!t) return;
+    let url = gBase()+'/rows?$select=values', rows=[];
+    while(url){
+      const res = await fetch(url,{headers:{Authorization:'Bearer '+t}});
+      if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.error?.message||res.statusText); }
+      const j = await res.json();
+      j.value.forEach(r=> rows.push(r.values[0]));
+      url = j['@odata.nextLink']||null;
+    }
+    liveRows = rows;
+    learnFromRows(rows);
+    $('connBadge').textContent='Connected'; $('connBadge').classList.add('on');
+    renderDash();
+    syncMsg('ok','Pulled '+rows.length+' rows — Month tab is live and merchant memory now knows '+(Object.keys(SEED.merchants).length+Object.keys(learned).length)+' names.');
+  }catch(e){ syncMsg('err','Pull failed: '+(e.message||e)); }
+};
+
+/* ---------- nav ---------- */
+document.querySelector('nav').onclick = e=>{
+  const b = e.target.closest('button[data-s]'); if(!b) return;
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $('scr-'+b.dataset.s).classList.add('active');
+  if(b.dataset.s==='dash') renderDash();
+};
+
+/* ---------- boot ---------- */
+initMonth(); buildCatPills(); renderPending(); renderDash();
+$('sClient').value = settings.client; $('sPath').value = settings.path; $('sTable').value = settings.table;
+$('memCount').textContent = Object.keys(SEED.merchants).length + Object.keys(learned).length;
+</script>
+</body>
+</html>
