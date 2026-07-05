@@ -381,8 +381,8 @@ function dataByMonth(){
   const hist = {}, det = {};
   if(liveRows){
     liveRows.forEach(v=>{
-      let [dt, name, deb, cred, notes, cat, sub] = v;
-      cat = String(cat||'').trim(); sub = String(sub||'').trim() || '—';
+      let dt = v[colIdx.date], deb = v[colIdx.deb], cred = v[colIdx.cred];
+      let cat = String(v[colIdx.cat]||'').trim(), sub = String(v[colIdx.sub]||'').trim() || '—';
       if(!cat) return;
       const m = typeof dt==='number' ? serialToMonth(dt) : String(dt||'').slice(0,7);
       const amt = cat==='Income' ? Number(cred)||0 : Number(deb)||0;
@@ -458,7 +458,7 @@ function drawMonth(m, hist, det){
 function learnFromRows(rows){
   const counts = {};
   rows.forEach(v=>{
-    const name = String(v[1]||'').trim(), cat = String(v[5]||'').trim(), sub = String(v[6]||'').trim();
+    const name = String(v[colIdx.name]||'').trim(), cat = String(v[colIdx.cat]||'').trim(), sub = String(v[colIdx.sub]||'').trim();
     if(!name || !cat) return;
     const k = name+'\u0000'+cat+'\u0000'+sub;
     counts[k] = (counts[k]||0)+1;
@@ -513,11 +513,26 @@ async function getToken(){
 }
 const gBase = ()=> `https://graph.microsoft.com/v1.0/me/drive/root:${encodeURI(settings.path)}:/workbook/tables/${encodeURIComponent(settings.table)}`;
 
+let colIdx = {date:0, name:1, deb:2, cred:3, notes:4, cat:5, sub:6}, colCount = 7;
+async function fetchColumns(t){
+  const res = await fetch(gBase()+'/columns?$select=name',{headers:{Authorization:'Bearer '+t}});
+  if(!res.ok) return;
+  const names = (await res.json()).value.map(c=>String(c.name).trim().toLowerCase());
+  colCount = names.length;
+  const find = (re, dflt)=>{ const i = names.findIndex(n=>re.test(n)); return i>=0 ? i : dflt; };
+  colIdx = { date: find(/^date/,0), name: find(/expense|name/,1), deb: find(/debit/,2),
+             cred: find(/credit/,3), notes: find(/note/,4), cat: find(/^category/,5), sub: find(/sub/,6) };
+}
+
 $('signBtn').onclick = async ()=>{
   saveSettings();
   try{ const t = await getToken(); if(!t) return;
     $('connBadge').textContent='Connected'; $('connBadge').classList.add('on');
-    syncMsg('ok','Signed in as '+(account?account.username:'you')+'. You can push and pull now.');
+    syncMsg('ok','Signed in as '+(account?account.username:'you')+'. Loading your workbook…');
+    await fetchColumns(t);
+    const rows = await fetchAllRows(t);
+    liveRows = rows; learnFromRows(rows); renderDash();
+    syncMsg('ok','Signed in and loaded '+rows.length+' rows — autocomplete now knows '+(Object.keys(SEED.merchants).length+Object.keys(learned).length)+' merchants.');
   }catch(e){ syncMsg('err','Sign-in failed: '+(e.errorMessage||e.message||e)); }
 };
 
@@ -526,8 +541,15 @@ $('pushBtn').onclick = async ()=>{
   if(!pending.length) return syncMsg('warn','Nothing pending to push.');
   try{
     const t = await getToken(); if(!t) return;
-    const values = pending.map(e=>[ e.serial, e.name, e.debit==null?'':e.debit, e.credit==null?'':e.credit,
-      e.notes||'', SEED.catWrite[e.cat]||e.cat, SEED.subWrite[e.sub]||e.sub||'' ]);
+    await fetchColumns(t);
+    const values = pending.map(e=>{
+      const row = new Array(colCount).fill('');
+      row[colIdx.date] = e.serial; row[colIdx.name] = e.name;
+      row[colIdx.deb] = e.debit==null?'':e.debit; row[colIdx.cred] = e.credit==null?'':e.credit;
+      row[colIdx.notes] = e.notes||''; row[colIdx.cat] = SEED.catWrite[e.cat]||e.cat;
+      row[colIdx.sub] = SEED.subWrite[e.sub]||e.sub||'';
+      return row;
+    });
     const res = await fetch(gBase()+'/rows/add', {method:'POST',
       headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},
       body: JSON.stringify({values})});
@@ -555,6 +577,7 @@ $('pullBtn').onclick = async ()=>{
   saveSettings();
   try{
     const t = await getToken(); if(!t) return;
+    await fetchColumns(t);
     const rows = await fetchAllRows(t);
     liveRows = rows;
     learnFromRows(rows);
@@ -576,6 +599,7 @@ async function quietConnect(){
     if(!accts.length) return;
     account = accts[0];
     const r = await msalApp.acquireTokenSilent({scopes:['Files.ReadWrite'], account});
+    await fetchColumns(r.accessToken);
     const rows = await fetchAllRows(r.accessToken);
     liveRows = rows;
     learnFromRows(rows);
