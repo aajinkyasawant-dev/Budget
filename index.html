@@ -504,7 +504,8 @@ async function getToken(){
     const r = await app.loginPopup(req); account = r.account;
     return r.accessToken;
   }catch(e){
-    if(e && (e.errorCode==='popup_window_error' || e.errorCode==='empty_window_error' || navigator.standalone)){
+    const code = e && e.errorCode || '';
+    if(code==='popup_window_error' || code==='empty_window_error' || code==='block_nested_popups' || navigator.standalone){
       await app.loginRedirect(req);
       return null;
     }
