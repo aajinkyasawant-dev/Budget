@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0E6B5C">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Ledger">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>Ledger — Monthly Budget</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
@@ -204,6 +210,7 @@ nav button .bdg{position:absolute;transform:translate(14px,-4px);background:var(
     <button class="btn" id="signBtn">Sign in with Microsoft</button>
     <button class="btn ghost" id="pushBtn">Push pending entries to Excel</button>
     <button class="btn ghost" id="pullBtn">Pull latest from Excel</button>
+    <p style="font-size:12px;color:var(--muted);margin-top:10px">This page's sign-in address — must be listed under <b>Single-page application</b> in Azure exactly as shown:<br><code id="redirShow" style="user-select:all;word-break:break-all;background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:2px 5px;display:inline-block;margin-top:4px"></code></p>
     <div class="okline" id="syncMsg"></div>
   </div>
 
@@ -266,11 +273,12 @@ function lookup(name){
   return null;
 }
 function suggest(q){
-  q = q.trim().toLowerCase(); if(q.length<1) return [];
+  q = q.trim().toLowerCase();
   const seen = new Set(), out = [];
   const scan = src => { for(const n in src){ const l=n.toLowerCase();
-    if(l.includes(q) && !seen.has(l)){ seen.add(l); out.push({name:n, cat:src[n][0], sub:src[n][1], n:src[n][2]||1}); } } };
+    if((q==='' || l.includes(q)) && !seen.has(l)){ seen.add(l); out.push({name:n, cat:src[n][0], sub:src[n][1], n:src[n][2]||1}); } } };
   scan(learned); scan(SEED.merchants);
+  if(q==='') { out.sort((a,b)=>(b.n||0)-(a.n||0)); return out.slice(0,6); }
   out.sort((a,b)=>{ const ap=a.name.toLowerCase().startsWith(q), bp=b.name.toLowerCase().startsWith(q);
     if(ap!==bp) return ap?-1:1; return (b.n||0)-(a.n||0); });
   return out.slice(0,6);
@@ -298,7 +306,7 @@ $('daySeg').onclick = e => { const b=e.target.closest('button'); if(!b) return; 
   [...$('daySeg').children].forEach(x=>{ x.style.background = x===b?'var(--ink)':''; x.style.color = x===b?'#fff':''; }); };
 
 const nameIn = $('fName'), ac = $('acList'), chip = $('memChip');
-nameIn.addEventListener('input', ()=>{
+function showSuggestions(){
   const list = suggest(nameIn.value);
   ac.innerHTML=''; ac.style.display = list.length ? 'block':'none';
   list.forEach(m=>{ const d=document.createElement('div');
@@ -307,7 +315,9 @@ nameIn.addEventListener('input', ()=>{
     ac.appendChild(d); });
   const hit = lookup(nameIn.value);
   if(hit) applyMemory(hit); else chip.style.display='none';
-});
+}
+nameIn.addEventListener('input', showSuggestions);
+nameIn.addEventListener('focus', showSuggestions);
 nameIn.addEventListener('blur', ()=> setTimeout(()=>{ ac.style.display='none'; const h=lookup(nameIn.value); if(h) applyMemory(h); },160));
 function applyMemory(m){
   sel.cat=m.cat;
@@ -490,8 +500,16 @@ async function getToken(){
     if(!account){ const accts = app.getAllAccounts(); account = accts[0]||null; }
     if(account){ const r = await app.acquireTokenSilent({...req, account}); return r.accessToken; }
   }catch(e){}
-  const r = await app.loginPopup(req); account = r.account;
-  return r.accessToken;
+  try{
+    const r = await app.loginPopup(req); account = r.account;
+    return r.accessToken;
+  }catch(e){
+    if(e && (e.errorCode==='popup_window_error' || e.errorCode==='empty_window_error' || navigator.standalone)){
+      await app.loginRedirect(req);
+      return null;
+    }
+    throw e;
+  }
 }
 const gBase = ()=> `https://graph.microsoft.com/v1.0/me/drive/root:${encodeURI(settings.path)}:/workbook/tables/${encodeURIComponent(settings.table)}`;
 
@@ -522,18 +540,22 @@ $('pushBtn').onclick = async ()=>{
   }catch(e){ syncMsg('err','Push failed: '+(e.message||e)+'. Check the file path and that the table is named "'+settings.table+'".'); }
 };
 
+async function fetchAllRows(t){
+  let url = gBase()+'/rows?$select=values', rows=[];
+  while(url){
+    const res = await fetch(url,{headers:{Authorization:'Bearer '+t}});
+    if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.error?.message||res.statusText); }
+    const j = await res.json();
+    j.value.forEach(r=> rows.push(r.values[0]));
+    url = j['@odata.nextLink']||null;
+  }
+  return rows;
+}
 $('pullBtn').onclick = async ()=>{
   saveSettings();
   try{
     const t = await getToken(); if(!t) return;
-    let url = gBase()+'/rows?$select=values', rows=[];
-    while(url){
-      const res = await fetch(url,{headers:{Authorization:'Bearer '+t}});
-      if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.error?.message||res.statusText); }
-      const j = await res.json();
-      j.value.forEach(r=> rows.push(r.values[0]));
-      url = j['@odata.nextLink']||null;
-    }
+    const rows = await fetchAllRows(t);
     liveRows = rows;
     learnFromRows(rows);
     $('connBadge').textContent='Connected'; $('connBadge').classList.add('on');
@@ -541,6 +563,26 @@ $('pullBtn').onclick = async ()=>{
     syncMsg('ok','Pulled '+rows.length+' rows — Month tab is live and merchant memory now knows '+(Object.keys(SEED.merchants).length+Object.keys(learned).length)+' names.');
   }catch(e){ syncMsg('err','Pull failed: '+(e.message||e)); }
 };
+
+/* silent auto-connect: if we've signed in before, refresh memory + dashboard on open */
+async function quietConnect(){
+  try{
+    if(!settings.client || location.protocol==='file:' || typeof msal==='undefined') return;
+    if(!msalApp) msalApp = new msal.PublicClientApplication({
+      auth:{ clientId:settings.client, authority:'https://login.microsoftonline.com/consumers', redirectUri: location.origin+location.pathname },
+      cache:{ cacheLocation:'localStorage' }});
+    if(msalApp.initialize) await msalApp.initialize();
+    const accts = msalApp.getAllAccounts();
+    if(!accts.length) return;
+    account = accts[0];
+    const r = await msalApp.acquireTokenSilent({scopes:['Files.ReadWrite'], account});
+    const rows = await fetchAllRows(r.accessToken);
+    liveRows = rows;
+    learnFromRows(rows);
+    $('connBadge').textContent='Connected'; $('connBadge').classList.add('on');
+    if($('scr-dash').classList.contains('active')) renderDash();
+  }catch(e){ /* silent — user can still sign in manually */ }
+}
 
 /* ---------- nav ---------- */
 document.querySelector('nav').onclick = e=>{
@@ -555,6 +597,24 @@ document.querySelector('nav').onclick = e=>{
 initMonth(); buildCatPills(); renderPending(); renderDash();
 $('sClient').value = settings.client; $('sPath').value = settings.path; $('sTable').value = settings.table;
 $('memCount').textContent = Object.keys(SEED.merchants).length + Object.keys(learned).length;
+(function(){
+  const r = location.protocol === 'file:' ? '(file:// — sign-in impossible, host this page first)' : location.origin + location.pathname;
+  $('redirShow').textContent = r;
+  if(location.protocol !== 'file:' && !location.hostname.endsWith('github.io') && location.hostname !== 'localhost')
+    $('redirShow').textContent = r + '  ⚠ unexpected host — open the app from your GitHub Pages URL instead';
+})();
+(async function(){
+  try{
+    if(!settings.client || location.protocol==='file:' || typeof msal==='undefined') return quietConnect();
+    if(!msalApp) msalApp = new msal.PublicClientApplication({
+      auth:{ clientId:settings.client, authority:'https://login.microsoftonline.com/consumers', redirectUri: location.origin+location.pathname },
+      cache:{ cacheLocation:'localStorage' }});
+    if(msalApp.initialize) await msalApp.initialize();
+    const res = await msalApp.handleRedirectPromise();
+    if(res && res.account){ account = res.account; syncMsg('ok','Signed in as '+account.username+'.'); }
+  }catch(e){}
+  quietConnect();
+})();
 </script>
 </body>
 </html>
